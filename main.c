@@ -1,7 +1,7 @@
 #include "sha_256.h"
 
 #include <stdlib.h> // for free ()
-#include <string.h> // for strlen ()`
+#include <string.h> // for strlen ()
 
 int main (void)
 {
