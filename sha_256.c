@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 struct SHA_256
 {
@@ -37,14 +38,20 @@ void sha_mem_free (struct SHA_256 *sha)
     free (sha->chunks_arr);
 }
 
-char *sha_complete_hash (const struct SHA_256 *sha)
+uint32_t swap_32bits(uint32_t num)
 {
-    char *hash = (char *)calloc (HASH_SIZE, sizeof (char));
+    num = (num & 0xffff0000) >> 16 | (num & 0x0000ffff) << 16;
+    num = (num & 0xff00ff00) >>  8 | (num & 0x00ff00ff) <<  8;
+
+    return num;
+}
+
+char *sha_complete_hash (struct SHA_256 *sha)
+{
+    char *hash = (char *)calloc (HASH_SIZE + 1, sizeof (char));
 
     for (int i = 0; i < 8; i++)
-    {
-        *(uint32_t *)(hash + 4 * i) = sha->h[i];
-    }
+        *(uint32_t *)(hash + 4 * i) = swap_32bits (sha->h[i]);
 
     return hash;
 }
@@ -56,64 +63,56 @@ uint32_t rotr (uint32_t num, uint32_t shift)
 
 void sha_recalc_h (struct SHA_256 *sha, const uint32_t chunk_i)
 {
-    uint32_t a = sha->h[0];
-    uint32_t b = sha->h[1];
-    uint32_t c = sha->h[2];
-    uint32_t d = sha->h[3];
-    uint32_t e = sha->h[4];
-    uint32_t f = sha->h[5];
-    uint32_t g = sha->h[6];
-    uint32_t h = sha->h[7];
+    uint32_t temp_buff[8] = {};
+    for (int i = 0; i < 8; i++)
+    {
+        temp_buff[i] = sha->h[i];
+    }
 
     for (uint32_t word_i = 0; word_i < 64; word_i++)
     {
-        uint32_t S0 = (rotr (a, 2)) ^ (rotr (a, 13)) ^ (rotr (a, 22));
-        uint32_t Ma = (a & b) ^ (a & c) ^ (b & c);
-        uint32_t t2 = S0 + Ma;
-        uint32_t S1 = (rotr (e, 6)) ^ (rotr (e, 11)) ^ (rotr (e, 25));
-        uint32_t Ch = (e & f) ^ ((~e) & g);
-        uint32_t t1 = h + S1 + Ch + k[word_i] + sha->chunks_arr[chunk_i][word_i];
+        uint32_t S0 = rotr (temp_buff[0], 2) ^ rotr (temp_buff[0], 13) ^ rotr (temp_buff[0], 22);
+        uint32_t maj = (temp_buff[0] & temp_buff[1]) ^ (temp_buff[0] & temp_buff[2]) ^ (temp_buff[1] & temp_buff[2]);
+        uint32_t t2 = S0 + maj;
+        uint32_t S1 = rotr (temp_buff[4], 6) ^ rotr (temp_buff[4], 11) ^ rotr (temp_buff[4], 25);
+        uint32_t Ch = (temp_buff[4] & temp_buff[5]) ^ (~temp_buff[4] & temp_buff[6]);
+        uint32_t t1 = temp_buff[7] + S1 + Ch + k[word_i] + sha->chunks_arr[chunk_i][word_i];
 
-        h = g;
-        g = f;
-        f = e;
-        e = d + t1;
-        d = c;
-        c = b;
-        b = a;
-        a = t1 + t2;
+        temp_buff[7] = temp_buff[6];
+        temp_buff[6] = temp_buff[5];
+        temp_buff[5] = temp_buff[4];
+        temp_buff[4] = temp_buff[3] + t1;
+        temp_buff[3] = temp_buff[2];
+        temp_buff[2] = temp_buff[1];
+        temp_buff[1] = temp_buff[0];
+        temp_buff[0] = t1 + t2;
     }
 
-    sha->h[0] += a;
-    sha->h[1] += b;
-    sha->h[2] += c;
-    sha->h[3] += d;
-    sha->h[4] += e;
-    sha->h[5] += f;
-    sha->h[6] += g;
-    sha->h[7] += h;
+    for (int i = 0; i < 8; i++)
+    {
+        sha->h[i] += temp_buff[i];
+    }
 }
 
 char *sha_hash_calc (struct SHA_256 *sha)
 {
     sha->chunks_arr = (uint32_t **)calloc (sha->n_chunks, sizeof (uint32_t *));
 
-    for (uint32_t i = 0; i < sha->n_chunks; i++)
-        sha->chunks_arr[i] = (uint32_t *)calloc (64, sizeof (uint32_t));
-
-    for (uint32_t i = 0; i < sha->n_chunks; i++)
+    for (uint32_t chunk_i = 0; chunk_i < sha->n_chunks; chunk_i++)
     {
-        for (uint32_t j = 0; j < 16; j++)
-            sha->chunks_arr[i][j] = *(int32_t *)(sha->data + 64 * i + 4 * j);
+        sha->chunks_arr[chunk_i] = (uint32_t *)calloc (64, sizeof (uint32_t));
+        
+        for (uint32_t word_i = 0; word_i < 16; word_i++)
+            sha->chunks_arr[chunk_i][word_i] = swap_32bits( *(int32_t *)(sha->data + 64 * chunk_i + 4 * word_i));
 
-        for (uint32_t j = 16; j < 64; j++)
+        for (uint32_t word_i = 16; word_i < 64; word_i++)
         {
-            uint32_t S0 = (rotr (sha->chunks_arr[i][j - 15], 7)) ^ (rotr (sha->chunks_arr[i][j - 15], 18)) ^ (sha->chunks_arr[i][j - 15] >> 3);
-            uint32_t S1 = (rotr (sha->chunks_arr[i][j - 2], 17)) ^ (rotr (sha->chunks_arr[i][j - 2],  19)) ^ (sha->chunks_arr[i][j - 2] >> 10);
-            sha->chunks_arr[i][j] = sha->chunks_arr[i][j - 16] + S0 + sha->chunks_arr[i][j - 7] + S1;
+            uint32_t S0 = rotr (sha->chunks_arr[chunk_i][word_i - 15], 7) ^ rotr (sha->chunks_arr[chunk_i][word_i - 15], 18) ^ (sha->chunks_arr[chunk_i][word_i - 15] >> 3);
+            uint32_t S1 = rotr (sha->chunks_arr[chunk_i][word_i - 2], 17) ^ rotr (sha->chunks_arr[chunk_i][word_i - 2],  19) ^ (sha->chunks_arr[chunk_i][word_i - 2] >> 10);
+            sha->chunks_arr[chunk_i][word_i] = sha->chunks_arr[chunk_i][word_i - 16] + S0 + sha->chunks_arr[chunk_i][word_i - 7] + S1;
         }
 
-        sha_recalc_h (sha, i);
+        sha_recalc_h (sha, chunk_i);
     }
 
     char *hash = sha_complete_hash (sha);
@@ -123,48 +122,73 @@ char *sha_hash_calc (struct SHA_256 *sha)
     return hash;
 }
 
-void sha_preprocessing (struct SHA_256 *sha, const char *msg, const uint64_t msg_len)
+uint64_t swap_64bits(uint64_t num)
 {
-    sha->n_chunks = (msg_len / 64 + 1);
+    num = (num & 0xffffffff00000000) >> 32 | (num & 0x00000000ffffffff) << 32;
+    num = (num & 0xffff0000ffff0000) >> 16 | (num & 0x0000ffff0000ffff) << 16;
+    num = (num & 0xff00ff00ff00ff00) >>  8 | (num & 0x00ff00ff00ff00ff) <<  8;
+
+    return num;
+}
+
+void sha_preprocessing (struct SHA_256 *sha, const char *msg)
+{
+    const uint64_t msg_len = strlen (msg);
+    
+    uint64_t temp = msg_len * 8 + 1 + 64;
+    
+    if (temp % 512 == 0)
+        sha->n_chunks = temp / 512;
+    else
+        sha->n_chunks = temp / 512 + 1;
+    
     sha->data_len = sha->n_chunks * 64;
 
     sha->data = (char *)calloc (sha->data_len, sizeof (char));
 
     memmove (sha->data, msg, msg_len);
 
-    sha->data[msg_len] = 1;
+    sha->data[msg_len] = 0x80;
 
-    *(uint64_t *)(sha->data + sha->data_len - 64) = msg_len;
+    *(uint64_t *)(sha->data + sha->data_len - 8) = swap_64bits (msg_len * 8);
 }
+
 
 void sha_initialize (struct SHA_256 *sha)
 {
     /* First 32 bits of the fractional parts 
     of the square roots of the first prime numbers 2..19 */
     sha->h[0] = 0x6a09e667;
-    sha->h[1] = 0x6a09e667;
-    sha->h[2] = 0xbb67ae85; 
-    sha->h[3] = 0x3c6ef372;
-    sha->h[4] = 0xa54ff53a;
-    sha->h[5] = 0x510e527f; 
-    sha->h[6] = 0x9b05688c;
-    sha->h[7] = 0x1f83d9ab;
-    sha->h[8] = 0x5be0cd19;
+    sha->h[1] = 0xbb67ae85; 
+    sha->h[2] = 0x3c6ef372;
+    sha->h[3] = 0xa54ff53a;
+    sha->h[4] = 0x510e527f; 
+    sha->h[5] = 0x9b05688c;
+    sha->h[6] = 0x1f83d9ab;
+    sha->h[7] = 0x5be0cd19;
 
     sha->data       = NULL;
-    sha->data       = 0;
+    sha->data_len   = 0;
     sha->chunks_arr = NULL;
     sha->n_chunks   = 0;
 }
 
-char *sha_256 (const char *data, const uint32_t data_len)
+void Printf_Sha (const char *hash)
+{
+    for (int i = 0; i < 8; i++)
+    {
+        printf ("%08X ", swap_32bits (*(uint32_t *)(hash + 4 * i)));
+    }
+    printf ("\n");
+}
+
+char *sha_256 (const char *data)
 {
     struct SHA_256 sha = {};
 
     sha_initialize (&sha);
 
-    sha_preprocessing (&sha, data, data_len);
+    sha_preprocessing (&sha, data);
 
     return sha_hash_calc (&sha);
 }
-
