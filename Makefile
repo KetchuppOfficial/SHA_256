@@ -18,6 +18,9 @@ run:
 valgrind:
 	valgrind -s Objects/sha_256.out
 
+lib:
+	ar r sha_256.a Objects/sha_256.o
+
 clean:
 	rm Objects/main.o
 	rm Objects/sha_256.o
