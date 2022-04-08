@@ -192,3 +192,26 @@ char *sha_256 (const char *data)
 
     return sha_hash_calc (&sha);
 }
+
+uint32_t sha_256_32 (const char *data)
+{
+    char *raw_hash = sha_256 (data);
+
+    uint64_t mask = 0x00000000FFFFFFFF;
+    uint32_t hash = *(uint64_t *)(raw_hash + 24) & mask;
+
+    free (raw_hash);
+
+    return hash;
+}
+
+uint64_t sha_256_64 (const char *data)
+{
+    char *raw_hash = sha_256 (data);
+
+    uint64_t hash = *(uint64_t *)(raw_hash + 24);
+
+    free (raw_hash);
+
+    return hash;
+}
