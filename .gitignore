@@ -1,2 +1,5 @@
-Objects/*.o
-Objects/sha_256.out
+main.c
+
+*.o
+*.d
+*.a
