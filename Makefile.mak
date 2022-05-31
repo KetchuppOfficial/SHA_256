@@ -16,7 +16,6 @@ DEPS = $(SUBS:.c=.d)
 .PHONY: all
 
 all: $(DEPS) $(OBJ)
-	@echo "Building library..."
 	@ar r SHA_256.a $(OBJ)
 
 $(BUILDDIR)%.o: $(SRCDIR)%.c
